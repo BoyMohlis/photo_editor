@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Crop & Ganti Background Pas Foto (v2)</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    background: #f2f2f2;
+    padding: 20px;
+    text-align: center;
+  }
+  .container {
+    background: white;
+    border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    padding: 20px;
+    display: inline-block;
+  }
+  canvas {
+    max-width: 100%;
+    border: 1px solid #ccc;
+    margin-top: 10px;
+  }
+  select, input, button {
+    margin: 5px;
+    padding: 8px;
+  }
+  img {
+    max-width: 300px;
+    border-radius: 6px;
+    margin-top: 10px;
+  }
+  #colorPicker {
+    display: none;
+  }
+</style>
+</head>
+<body>
+
+<h2>📸 Aplikasi Pas Foto Editor v2</h2>
+<div class="container">
+  <p>Masukkan API Key Remove.bg:</p>
+  <input type="text" id="apiKey" placeholder="Masukkan API Key Remove.bg">
+  <br><br>
+
+  <input type="file" id="upload" accept="image/*"><br>
+
+  <label>Ukuran Foto:</label>
+  <select id="photoSize">
+    <option value="2x3">2x3 cm</option>
+    <option value="3x4" selected>3x4 cm</option>
+    <option value="4x6">4x6 cm</option>
+  </select>
+
+  <label>Background:</label>
+  <select id="bgColor">
+    <option value="transparent">Transparan</option>
+    <option value="white">Putih</option>
+    <option value="red">Merah</option>
+    <option value="blue">Biru</option>
+    <option value="green">Hijau</option>
+    <option value="yellow">Kuning</option>
+    <option value="custom">Custom (Pilih Sendiri)</option>
+  </select>
+
+  <!-- Picker warna -->
+  <input type="color" id="colorPicker" value="#ffffff">
+
+  <br>
+  <button id="removeBgBtn">Crop & Remove Background</button>
+
+  <div style="margin-top:20px;">
+    <canvas id="cropCanvas"></canvas><br>
+    <label>Zoom:</label>
+    <input type="range" id="zoomRange" min="1" max="3" step="0.1" value="1">
+    <br>
+    <p>Geser foto dengan mouse untuk menyesuaikan posisi.</p>
+  </div>
+
+  <div id="resultArea"></div>
+</div>
+
+<script>
+const upload = document.getElementById('upload');
+const canvas = document.getElementById('cropCanvas');
+const ctx = canvas.getContext('2d');
+const zoomRange = document.getElementById('zoomRange');
+const resultArea = document.getElementById('resultArea');
+const bgColorSelect = document.getElementById('bgColor');
+const colorPicker = document.getElementById('colorPicker');
+
+let img = new Image();
+let dragging = false, startX, startY;
+let offsetX = 0, offsetY = 0, zoom = 1;
+
+// --- tampilkan color picker hanya jika pilih custom ---
+bgColorSelect.addEventListener('change', () => {
+  if (bgColorSelect.value === 'custom') {
+    colorPicker.style.display = 'inline-block';
+  } else {
+    colorPicker.style.display = 'none';
+  }
+});
+
+// --- upload dan tampilkan gambar ---
+upload.addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (file) {
+    const reader = new FileReader();
+    reader.onload = ev => {
+      img.onload = drawImage;
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+});
+
+// --- zoom ---
+zoomRange.addEventListener('input', e => {
+  zoom = parseFloat(e.target.value);
+  drawImage();
+});
+
+// --- drag/geser posisi ---
+canvas.addEventListener('mousedown', e => {
+  dragging = true;
+  startX = e.offsetX;
+  startY = e.offsetY;
+});
+
+canvas.addEventListener('mouseup', () => dragging = false);
+canvas.addEventListener('mouseout', () => dragging = false);
+
+canvas.addEventListener('mousemove', e => {
+  if (dragging) {
+    offsetX += e.offsetX - startX;
+    offsetY += e.offsetY - startY;
+    startX = e.offsetX;
+    startY = e.offsetY;
+    drawImage();
+  }
+});
+
+// --- fungsi menggambar ulang ---
+function drawImage() {
+  const size = document.getElementById('photoSize').value;
+  let width, height;
+  if (size === '2x3') { width = 236; height = 354; }
+  else if (size === '3x4') { width = 354; height = 472; }
+  else { width = 472; height = 708; }
+  canvas.width = width;
+  canvas.height = height;
+  ctx.clearRect(0,0,width,height);
+  const scaledWidth = img.width * zoom;
+  const scaledHeight = img.height * zoom;
+  const x = (width - scaledWidth)/2 + offsetX;
+  const y = (height - scaledHeight)/2 + offsetY;
+  ctx.drawImage(img, x, y, scaledWidth, scaledHeight);
+}
+
+// --- proses crop dan hapus background ---
+document.getElementById('removeBgBtn').addEventListener('click', async () => {
+  const apiKey = document.getElementById('apiKey').value.trim();
+  if (!apiKey) return alert('Masukkan API key dulu bro!');
+
+  let bgColor = bgColorSelect.value;
+  if (bgColor === 'custom') {
+    bgColor = colorPicker.value; // pakai warna dari color picker
+  }
+
+  canvas.toBlob(async blob => {
+    const formData = new FormData();
+    formData.append("image_file", blob);
+    formData.append("size", "auto");
+    if (bgColor !== 'transparent') formData.append("bg_color", bgColor);
+
+    resultArea.innerHTML = "<p>⏳ Memproses... tunggu sebentar bro...</p>";
+
+    const res = await fetch("https://api.remove.bg/v1.0/removebg", {
+      method: "POST",
+      headers: { "X-Api-Key": apiKey },
+      body: formData
+    });
+
+    if (res.ok) {
+      const blobResult = await res.blob();
+      const url = URL.createObjectURL(blobResult);
+      resultArea.innerHTML = `<h4>Hasil Akhir:</h4><img src="${url}"><br><a href="${url}" download="hasil.png">💾 Download</a>`;
+    } else {
+      const err = await res.text();
+      resultArea.innerHTML = `<p style='color:red;'>Gagal: ${err}</p>`;
+    }
+  }, "image/png");
+});
+</script>
+
+</body>
+</html>
